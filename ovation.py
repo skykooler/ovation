@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import subprocess
 import os
+import shutil
 from tkinter import *
 from PIL import ImageTk, Image
 import time
@@ -8,12 +9,13 @@ import re
 
 last_time = time.time()
 file_substr_regex = r'([\w.-]+?)(\d*).png$'
+data_folder = 'data/'
 
 def convert_pdf(src, dest):
     p = subprocess.Popen(["pdftoppm", src, dest, "-png", "-rx", "100", "-ry", "100"])
     while True:
         if p.poll() is None:
-            yield len([i for i in os.listdir(os.dirname(dest)) if i.startswith(dest+'-')])
+            yield len([i for i in os.listdir(os.path.dirname(dest)) if i.startswith(os.path.basename(dest)+'-')])
         else:
             return None
 
@@ -41,10 +43,15 @@ class ModalWindow:
         self.win.title("Select song to load")
         self.index = 0
         self.displayIndex = 0
-        self.options = ['Import new song'] + os.listdir('data')
+        self.options = ['Import new song'] + os.listdir(data_folder)
         self.update()
         self.win.bind("<Key>", self.onKeyPress)
         self.win.bind("<Return>", self.onEnterPress)
+        self.win.bind("<Down>", self.onDownPress)
+        self.win.bind("<Up>", self.onUpPress)
+        self.mode = "Open"
+        self.path = os.path.expanduser('~') #TODO
+        self.conversion_name = ""
 
     def update(self):
         self.label1['text'] = self.options[self.index]
@@ -56,17 +63,26 @@ class ModalWindow:
         self.label3['bg'] = 'white' if self.displayIndex==2 else self.defaultColor
         self.label4['bg'] = 'white' if self.displayIndex==3 else self.defaultColor
 
+    def update_paths(self):
+        self.index = 0
+        self.displayIndex = 0
+        self.options = ['(Cancel import)', '(Up a directory)'] + sorted([i.name + ('/' if i.is_dir() else '') for i in os.scandir(self.path) if not i.name.startswith('.')])
+        self.update()
+
+    def getSelected(self):
+        return self.options[self.index + self.displayIndex]
+
     def onKeyPress(self, event):
         global last_time
         ctime = time.time()
         if ctime - last_time > 0.25:
-            if event.char in '123456qwertyasdfgzxcvb':
+            if event.char and event.char in '123456qwertyasdfgzxcvb':
                 last_time = ctime
                 if self.index > 0 and self.displayIndex==0:
                     self.index -= 1
                 elif self.displayIndex > 0:
                     self.displayIndex-=1
-            elif event.char in '890-=uiop[]hjkl;\'nm,./ ':
+            elif event.char and event.char in '890-=uiop[]hjkl;\'nm,./ ':
                 last_time = ctime
                 if self.index < len(self.options) - 4 and self.displayIndex==3:
                     self.index+=1
@@ -74,13 +90,91 @@ class ModalWindow:
                     self.displayIndex += 1
             self.update()
 
-    def onEnterPress(self, event=None):
-        if self.index+self.displayIndex > 0:
+    def monitorConversion(self):
+        try:
+            res = next(self.conversion)
+            if res is not None:
+                self.options = ["Importing page %i..." % res]
+                self.index = 0
+                self.displayIndex = 0
+                self.update()
+                print(res)
+                self.win.after(200, self.monitorConversion)
+            else:
+                print ('finished without exception')
+        except StopIteration:
             self.win.destroy()
-            folder = 'data/'+self.options[self.index+self.displayIndex]
+            folder = data_folder + self.conversionName
             img = os.listdir(folder)[0]
-            print(img)
-            self.parent.loadImageSet(folder+'/'+img)
+            self.parent.loadImageSet(os.path.join(folder, img))
+
+    def is_sequence_folder(self, path):
+        files = [i for i in os.scandir(self.path)]
+        if [i for i in files if i.is_dir()]:
+            return False
+        if len(set([i.name.split('.')[-1] for i in files])) == 1:
+            if files[0].name.split('.')[-1] in ['png','jpg','tif','tiff','bmp']:
+                if len(set([re.match(file_substr_regex, i.name).group(1) for i in files])) == 1:
+                    return True
+        return False
+
+    def onEnterPress(self, event=None):
+        global last_time
+        ctime = time.time()
+        if ctime - last_time > 0.25:
+            last_time = ctime
+        else:
+            return
+        if self.mode=="Open":
+            if self.index+self.displayIndex > 0:
+                self.win.destroy()
+                folder = data_folder+self.getSelected()
+                img = os.listdir(folder)[0]
+                print(img)
+                self.parent.loadImageSet(os.path.join(folder,img))
+            else:
+                self.mode = "Import"
+                self.update_paths()
+        elif self.mode=="Import":
+            if self.index+self.displayIndex > 1:
+                if self.getSelected().endswith('/'):
+                    self.path = os.path.join(self.path, self.getSelected())
+                    if self.is_sequence_folder(self.path):
+                        if all([i.endswith('.png') for i in os.listdir(self.path)]):
+                            folder = os.path.join(data_folder, self.getSelected())
+                            shutil.copytree(self.path, folder)
+                            self.win.destroy()
+                            img = os.listdir(folder)[0]
+                            self.parent.loadImageSet(os.path.join(folder, img))
+                    self.update_paths()
+                else:
+                    if self.getSelected().endswith('pdf'):
+                        self.mode = "Converting"
+                        os.mkdir(data_folder+self.getSelected())
+                        self.conversionName = self.getSelected()
+                        self.conversion = convert_pdf(
+                                os.path.join(self.path, self.getSelected()),
+                                os.path.join(data_folder+self.getSelected(), self.getSelected()))
+                        self.win.after(200, self.monitorConversion)
+            elif self.index + self.displayIndex == 1:
+                self.path = os.path.normpath(os.path.join(self.path, '..'))
+                self.update_paths()
+            else:
+                self.mode = "Open"
+                self.index = 0
+                self.displayIndex = 0
+                self.options = ['Import new song'] + os.listdir(data_folder)
+                self.update()
+
+    def onDownPress(self, event=None):
+        event = lambda: None
+        event.char = 'k'
+        self.onKeyPress(event=event)
+
+    def onUpPress(self, event=None):
+        event = lambda: None
+        event.char = 'd'
+        self.onKeyPress(event=event)
 
 class MStandWindow:
     def __init__(self):
