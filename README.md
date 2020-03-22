@@ -4,4 +4,4 @@ Ovation displays sheet music in a full screen window. It uses a simple interface
 
 It can import PDFs as well as image sequences. Ovation tries to handle image sequences intelligently for multi-page songs.
 
-![Screenshot of Ovation with song choice dialog open](https://skyler.io/images/ovation2.png)
+![Screenshot of Ovation with song choice dialog open](http://skyler.io/images/ovation2.png)
