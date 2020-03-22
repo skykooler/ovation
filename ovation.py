@@ -8,8 +8,11 @@ import time
 import re
 
 last_time = time.time()
-file_substr_regex = r'([\w.-]+?)(\d*).png$'
-data_folder = 'data/'
+file_substr_regex = r'([\w. -]+?)-?(\d*).(png|jpg|jpeg|tif|tiff)$'
+data_folder = os.path.join(os.path.expanduser('~'), '.ovation/data/')
+
+if not os.path.exists(data_folder):
+    os.makedirs(data_folder)
 
 def convert_pdf(src, dest):
     p = subprocess.Popen(["pdftoppm", src, dest, "-png", "-rx", "100", "-ry", "100"])
@@ -98,10 +101,7 @@ class ModalWindow:
                 self.index = 0
                 self.displayIndex = 0
                 self.update()
-                print(res)
                 self.win.after(200, self.monitorConversion)
-            else:
-                print ('finished without exception')
         except StopIteration:
             self.win.destroy()
             folder = data_folder + self.conversionName
@@ -110,12 +110,13 @@ class ModalWindow:
 
     def is_sequence_folder(self, path):
         files = [i for i in os.scandir(self.path)]
+        if len(files) < 2:
+            return False
         if [i for i in files if i.is_dir()]:
             return False
         if len(set([i.name.split('.')[-1] for i in files])) == 1:
-            if files[0].name.split('.')[-1] in ['png','jpg','tif','tiff','bmp']:
-                if len(set([re.match(file_substr_regex, i.name).group(1) for i in files])) == 1:
-                    return True
+            if len(set([re.match(file_substr_regex, i.name).group(1) for i in files])) == 1:
+                return True
         return False
 
     def onEnterPress(self, event=None):
@@ -130,7 +131,6 @@ class ModalWindow:
                 self.win.destroy()
                 folder = data_folder+self.getSelected()
                 img = os.listdir(folder)[0]
-                print(img)
                 self.parent.loadImageSet(os.path.join(folder,img))
             else:
                 self.mode = "Import"
@@ -140,12 +140,11 @@ class ModalWindow:
                 if self.getSelected().endswith('/'):
                     self.path = os.path.join(self.path, self.getSelected())
                     if self.is_sequence_folder(self.path):
-                        if all([i.endswith('.png') for i in os.listdir(self.path)]):
-                            folder = os.path.join(data_folder, self.getSelected())
-                            shutil.copytree(self.path, folder)
-                            self.win.destroy()
-                            img = os.listdir(folder)[0]
-                            self.parent.loadImageSet(os.path.join(folder, img))
+                        folder = os.path.join(data_folder, self.getSelected())
+                        shutil.copytree(self.path, folder)
+                        self.win.destroy()
+                        img = os.listdir(folder)[0]
+                        self.parent.loadImageSet(os.path.join(folder, img))
                     self.update_paths()
                 else:
                     if self.getSelected().endswith('pdf'):
@@ -156,6 +155,27 @@ class ModalWindow:
                                 os.path.join(self.path, self.getSelected()),
                                 os.path.join(data_folder+self.getSelected(), self.getSelected()))
                         self.win.after(200, self.monitorConversion)
+                    elif self.getSelected().endswith(("png", "jpg", "jpeg", "tif", "tiff")):
+                        res = re.match(file_substr_regex, self.getSelected())
+                        if res:
+                            basename = res.group(1)
+                            sequence_files = [i.name for i in os.scandir(self.path) if re.match(file_substr_regex, i.name) and re.match(file_substr_regex, i.name).group(1)==basename and not i.is_dir()]
+                            if len(sequence_files) > 1:
+                                os.mkdir(os.path.join(data_folder, basename))
+                                for f in sequence_files:
+                                    shutil.copy(os.path.join(self.path, f), os.path.join(data_folder, basename, f))
+                            else:
+                                basename = '.'.join(self.getSelected().split('.')[:-1])
+                                os.mkdir(os.path.join(data_folder, basename))
+                                shutil.copy(os.path.join(self.path, self.getSelected()), os.path.join(data_folder, basename, self.getSelected()))
+                        else:
+                            basename = '.'.join(self.getSelected().split('.')[:-1]) if '.' in self.getSelected() else self.getSelected()
+                            os.mkdir(os.path.join(data_folder, basename))
+                            shutil.copy(os.path.join(self.path, self.getSelected()), os.path.join(data_folder, basename, self.getSelected()))
+                        self.win.destroy()
+                        img = os.listdir(os.path.join(data_folder, basename))[0]
+                        self.parent.loadImageSet(os.path.join(data_folder, basename, img))
+
             elif self.index + self.displayIndex == 1:
                 self.path = os.path.normpath(os.path.join(self.path, '..'))
                 self.update_paths()
@@ -181,17 +201,16 @@ class MStandWindow:
         self.tk = Tk()
         self.tk.attributes("-fullscreen", True)
         self.w, self.h = self.tk.winfo_screenwidth(), self.tk.winfo_screenheight()
-        #self.frame = Frame(self.tk)
-        #self.frame.pack()
         self.canvas = Canvas(self.tk, width=self.w, height=self.h)
         self.canvas.pack()
 
         self.tk.bind("<Key>", self.onKeyPress)
         self.tk.bind("<Return>", self.onReturnPress)
+        self.win.bind("<Down>", self.onDownPress)
+        self.win.bind("<Up>", self.onUpPress)
         self.image_cache = {}
         self.images = []
         self.index = 0
-        #self.loadImageSet("data/moonlight-a4.png/moonlight-a4.png-01.png")
         self.tk.update()
         mwin = ModalWindow(self)
 
@@ -210,8 +229,17 @@ class MStandWindow:
                     self.index += 1
                     self.setImages(self.images[self.index], self.images[self.index+1])
 
+    def onDownPress(self, event=None):
+        event = lambda: None
+        event.char = 'k'
+        self.onKeyPress(event=event)
+
+    def onUpPress(self, event=None):
+        event = lambda: None
+        event.char = 'd'
+        self.onKeyPress(event=event)
+
     def onReturnPress(self, event=None):
-        print("launched modal")
         mwin = ModalWindow(self)
 
     def setImages(self, img1, img2=None):
@@ -248,6 +276,8 @@ class MStandWindow:
             tkImage2 = ImageTk.PhotoImage(image2)
             isprite2 = self.canvas.create_image(self.w*3/4, self.h/2, image=tkImage2)
             self.canvas.image2 = tkImage2
+        else:
+            self.canvas.image2 = None
         self.tk.update_idletasks()
         self.tk.update()
 
