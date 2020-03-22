@@ -27,6 +27,7 @@ class ModalWindow:
         w, h = parent.w, parent.h
         self.parent = parent
         self.win = Toplevel()
+        self.win.config(cursor="none")
         self.defaultColor = self.win.cget('bg')
         self.label1 = Label(self.win, pady=20, width=64, font=('Helvetica', 24))
         self.label2 = Label(self.win, pady=20, width=64, font=('Helvetica', 24), bg="red")
@@ -200,14 +201,15 @@ class MStandWindow:
     def __init__(self):
         self.tk = Tk()
         self.tk.attributes("-fullscreen", True)
+        self.tk.config(cursor="none")
         self.w, self.h = self.tk.winfo_screenwidth(), self.tk.winfo_screenheight()
         self.canvas = Canvas(self.tk, width=self.w, height=self.h)
         self.canvas.pack()
 
         self.tk.bind("<Key>", self.onKeyPress)
         self.tk.bind("<Return>", self.onReturnPress)
-        self.win.bind("<Down>", self.onDownPress)
-        self.win.bind("<Up>", self.onUpPress)
+        self.tk.bind("<Down>", self.onDownPress)
+        self.tk.bind("<Up>", self.onUpPress)
         self.image_cache = {}
         self.images = []
         self.index = 0
